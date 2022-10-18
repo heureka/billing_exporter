@@ -4,7 +4,7 @@ import asyncio
 import logging
 from prometheus_client import start_http_server, Gauge
 
-from config import CORTEX, PORT, REFRESH_FREQUENCY, LOG_LEVEL
+from config import MIMIR, PORT, REFRESH_FREQUENCY, LOG_LEVEL, TENANT
 from container import ContainerCost, KNOWN_CONTAINERS
 
 logging.basicConfig(level=LOG_LEVEL.upper())
@@ -14,9 +14,14 @@ container_runtime_cost_total = Gauge('container_runtime_cost_total', 'Total cost
 
 
 async def request(query: str):
-    logging.info(f'requests: Asking {CORTEX} about {query}')
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f'{CORTEX}/prometheus/api/v1/query', params={'query': f'{query}'}) as response:
+    if not TENANT:
+        headers = ''
+        logging.info(f'requests: Asking {MIMIR} about {query}')
+    else:
+        logging.info(f'requests: Asking {MIMIR} about {query} with tenant ids {TENANT}')
+        headers = {f'X-Scope-OrgId': f'{TENANT}'}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.get(f'{MIMIR}/prometheus/api/v1/query', params={'query': f'{query}'}) as response:
             result = await response.json()
 
     return result['data']['result']
@@ -28,6 +33,7 @@ async def node_param_second_cost(param: str):
         f'sum(node_{param}_hourly_cost{{}}) by (exported_instance)')
 
     second_cost = []
+
     for node in response:
         second_cost.append({"node": f"{node['metric']['exported_instance']}",
                            f"{param}_second_cost": float((node['value'][1])) / 3600})
